@@ -37,10 +37,10 @@ cd parol6-gamepad-control
 
 ## Lancer
 
-Dans le dossier du dépôt :
+Dans le dossier du dépôt. `py -3.11` force Python 3.11, même si une version plus récente est aussi installée. `python` seul prend le premier trouvé dans le PATH.
 
 ```powershell
-python sensor_gui.py
+py -3.11 sensor_gui.py
 ```
 
 La fenêtre s’appelle **PAROL6 — capteurs + manette**.
@@ -53,7 +53,7 @@ La fenêtre s’appelle **PAROL6 — capteurs + manette**.
 `pyserial` est optionnel. Sans lui, le logiciel ouvre le port via Windows. Pour une liste de ports plus propre :
 
 ```powershell
-pip install pyserial
+py -3.11 -m pip install pyserial
 ```
 
 ## Reflasher la carte

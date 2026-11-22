@@ -4,7 +4,7 @@ GUI de lecture brute des capteurs PAROL6 (firmware wiring test).
 Usage:
   1. Flashe le firmware de ce dossier.
   2. Ferme le moniteur serie PlatformIO (le port COM ne peut etre ouvert qu'une fois).
-  3. python sensor_gui.py
+  3. py -3.11 sensor_gui.py
   4. Choisis le COM (STM32 Virtual COM), Connecter.
 
 Pas besoin de pip / pygame : manette via l'API Windows (comme joy.cpl).
@@ -691,6 +691,19 @@ class SensorGui(tk.Tk):
         self.conn_btn.pack(side="left", padx=8)
         self.status = tk.Label(top, text="Deconnecte", bg=BG, fg="#a00")
         self.status.pack(side="left", padx=12)
+        self.btn_soft = tk.Button(
+            top,
+            text="RENDRE MOU",
+            command=self._toggle_soft,
+            bg="#455a64",
+            fg="white",
+            activebackground="#455a64",
+            activeforeground="white",
+            font=("Segoe UI", 11, "bold"),
+            padx=14,
+            pady=4,
+        )
+        self.btn_soft.pack(side="right", padx=4)
 
         self._refresh_ports()
 
@@ -776,19 +789,6 @@ class SensorGui(tk.Tk):
         ttk.Button(mot, text="p  +400", command=lambda: self._cmd("p")).pack(side="left", padx=8)
         ttk.Button(mot, text="m  -400", command=lambda: self._cmd("m")).pack(side="left", padx=3)
         ttk.Button(mot, text="STOP", command=lambda: self._cmd("s")).pack(side="left", padx=8)
-        self.btn_soft = tk.Button(
-            mot,
-            text="Rendre mou",
-            command=self._toggle_soft,
-            bg="#455a64",
-            fg="white",
-            activebackground="#455a64",
-            activeforeground="white",
-            font=("Segoe UI", 9, "bold"),
-            padx=10,
-            pady=2,
-        )
-        self.btn_soft.pack(side="left", padx=(16, 3))
 
         log_fr = tk.LabelFrame(parent, text="Historique des changements", bg=BG)
         log_fr.pack(fill="both", expand=True, padx=12, pady=(4, 12))
