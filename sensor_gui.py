@@ -291,19 +291,29 @@ POLL_MS = 30
 PAD_MS = 40
 
 
+def _appdata_dir():
+    base = os.environ.get("APPDATA") or os.path.expanduser("~")
+    folder = os.path.join(base, "PAROL6")
+    try:
+        os.makedirs(folder, exist_ok=True)
+    except OSError:
+        return None
+    return folder
+
+
 def _user_file(name):
     """Suites et réglages dans %APPDATA%\\PAROL6, pour qu'une mise à jour du code ne les écrase pas."""
     src = os.path.join(os.path.dirname(os.path.abspath(__file__)), name)
-    try:
-        base = os.environ.get("APPDATA") or os.path.expanduser("~")
-        folder = os.path.join(base, "PAROL6")
-        os.makedirs(folder, exist_ok=True)
-        dest = os.path.join(folder, name)
-        if not os.path.isfile(dest) and os.path.isfile(src):
-            shutil.copy2(src, dest)
-        return dest
-    except OSError:
+    folder = _appdata_dir()
+    if not folder:
         return src
+    dest = os.path.join(folder, name)
+    if not os.path.isfile(dest) and os.path.isfile(src):
+        try:
+            shutil.copy2(src, dest)
+        except OSError:
+            return src
+    return dest
 
 
 def app_version():
@@ -361,6 +371,43 @@ JOINT_NAMES = ["J1 base", "J2 epaule", "J3 coude", "J4 roll", "J5 pitch", "J6 ya
 
 BG = "#f4f4f4"
 CARD = "#ffffff"
+UI_SCALE = 1.0
+ZOOM_LEVELS = (1.0, 1.5, 2.0)
+ZOOM_LABELS = ("100%", "150%", "200%")
+
+
+def z(n):
+    """Pixels d'interface, multipliés par le zoom choisi."""
+    return max(1, int(round(float(n) * UI_SCALE)))
+
+
+def load_ui_scale():
+    folder = _appdata_dir()
+    if not folder:
+        return 1.0
+    path = os.path.join(folder, "ui_scale.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            raw = json.load(f)
+        value = float(raw.get("scale", 1))
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return 1.0
+    for scale in ZOOM_LEVELS:
+        if abs(value - scale) < 0.05:
+            return scale
+    return 1.0
+
+
+def save_ui_scale(scale):
+    folder = _appdata_dir()
+    if not folder:
+        return
+    path = os.path.join(folder, "ui_scale.json")
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"scale": float(scale)}, f)
+    except OSError:
+        pass
 YELLOW = "#ffe566"
 GREEN = "#d4edda"
 RED = "#f8d7da"
@@ -572,7 +619,7 @@ def scale_speeds(speeds, rate):
 
 class ValueCell:
     def __init__(self, parent, title: str, subtitle: str = ""):
-        self.frame = tk.Frame(parent, bg=CARD, bd=1, relief="solid", padx=10, pady=8)
+        self.frame = tk.Frame(parent, bg=CARD, bd=1, relief="solid", padx=z(10), pady=z(8))
         self.title = tk.Label(self.frame, text=title, bg=CARD, font=("Segoe UI", 10, "bold"))
         self.title.pack(anchor="w")
         if subtitle:
@@ -625,8 +672,14 @@ class SensorGui(tk.Tk):
         super().__init__()
         self.title(f"PAROL6 — capteurs + manette  ·  {app_version()}")
         self.configure(bg=BG)
-        self.geometry("1280x900")
-        self.minsize(1100, 720)
+        self.ui_scale = load_ui_scale()
+        self._tk_base = float(self.tk.call("tk", "scaling"))
+        self._scroll_after = None
+        self._vsb_on = False
+        self._hsb_on = False
+        self._building = False
+        self._apply_tk_scale()
+        self._fit_window()
 
         self.ser = None
         self.reader_stop = threading.Event()
@@ -702,13 +755,202 @@ class SensorGui(tk.Tk):
 
         self._build()
         self._library_autoload()
+        self.bind_all("<MouseWheel>", self._on_wheel)
         self.after(POLL_MS, self._drain)
         self.after(PAD_MS, self._pad_tick)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
+    def _apply_tk_scale(self):
+        global UI_SCALE
+        UI_SCALE = float(self.ui_scale)
+        self.tk.call("tk", "scaling", self._tk_base * UI_SCALE)
+        style = ttk.Style(self)
+        if UI_SCALE <= 1.01:
+            style.configure("TButton", padding=(1, 1))
+            style.configure("TNotebook.Tab", padding=(0, 0))
+        else:
+            extra = max(1, int(round(4 * (UI_SCALE - 1.0))))
+            style.configure("TButton", padding=(extra, extra))
+            style.configure("TNotebook.Tab", padding=(extra, max(1, extra // 2)))
+
+    def _fit_window(self):
+        sw = max(800, int(self.winfo_screenwidth()))
+        sh = max(600, int(self.winfo_screenheight()))
+        w = z(1280)
+        h = z(900)
+        if self.ui_scale > 1.01:
+            w = min(w, max(1280, sw - 16))
+            h = min(h, max(900, sh - 72))
+        self.geometry(f"{w}x{h}")
+        self.minsize(min(z(1100), max(800, sw - 40)), min(z(720), max(500, sh - 80)))
+
+    def _schedule_scroll(self, _event=None):
+        if self._scroll_after is not None:
+            try:
+                self.after_cancel(self._scroll_after)
+            except tk.TclError:
+                pass
+        self._scroll_after = self.after(40, self._sync_scroll)
+
+    def _sync_scroll(self):
+        self._scroll_after = None
+        view = getattr(self, "_view", None)
+        host = getattr(self, "_host", None)
+        if view is None or host is None:
+            return
+        try:
+            if not view.winfo_exists() or not host.winfo_exists():
+                return
+            view.update_idletasks()
+            req_w = host.winfo_reqwidth()
+            req_h = host.winfo_reqheight()
+            cw = view.winfo_width()
+            ch = view.winfo_height()
+        except tk.TclError:
+            return
+        if cw < 2 or ch < 2:
+            return
+        view.itemconfigure(self._view_win, width=max(cw, req_w))
+        try:
+            view.update_idletasks()
+            req_h = host.winfo_reqheight()
+        except tk.TclError:
+            return
+        view.itemconfigure(self._view_win, height=max(ch, req_h))
+        view.configure(scrollregion=(0, 0, max(cw, req_w), max(ch, req_h)))
+        need_y = req_h > (ch - 24 if self._vsb_on else ch + 4)
+        need_x = req_w > (cw - 24 if self._hsb_on else cw + 4)
+        if need_y != self._vsb_on:
+            if need_y:
+                self._vsb.grid(row=0, column=1, sticky="ns")
+            else:
+                self._vsb.grid_remove()
+                view.yview_moveto(0)
+            self._vsb_on = need_y
+        if need_x != self._hsb_on:
+            if need_x:
+                self._hsb.grid(row=1, column=0, sticky="ew")
+            else:
+                self._hsb.grid_remove()
+                view.xview_moveto(0)
+            self._hsb_on = need_x
+
+    def _on_wheel(self, event):
+        view = getattr(self, "_view", None)
+        if view is None:
+            return
+        try:
+            if not view.winfo_exists():
+                return
+        except tk.TclError:
+            return
+        widget = event.widget
+        while widget is not None:
+            if isinstance(widget, (tk.Listbox, tk.Text, tk.Spinbox, tk.Scale)):
+                return
+            widget = getattr(widget, "master", None)
+        step = int(-event.delta / 120) or (-1 if event.delta > 0 else 1)
+        if event.state & 0x0001:
+            view.xview_scroll(step, "units")
+        else:
+            view.yview_scroll(step, "units")
+
+    def _on_zoom_selected(self, _event=None):
+        if self._building:
+            return
+        label = self.zoom_var.get()
+        try:
+            scale = ZOOM_LEVELS[ZOOM_LABELS.index(label)]
+        except ValueError:
+            return
+        if abs(scale - self.ui_scale) < 0.01:
+            return
+        self.ui_scale = scale
+        save_ui_scale(scale)
+        self._rebuild_ui()
+
+    def _rebuild_ui(self):
+        log_text = ""
+        port = ""
+        try:
+            log_text = self.log.get("1.0", "end-1c")
+        except (tk.TclError, AttributeError):
+            pass
+        try:
+            port = self.port_var.get()
+        except (tk.TclError, AttributeError):
+            pass
+        connected = bool(self.ser and getattr(self.ser, "is_open", False))
+        dev = self._port_device() if connected else ""
+        self._building = True
+        try:
+            if self._scroll_after is not None:
+                try:
+                    self.after_cancel(self._scroll_after)
+                except tk.TclError:
+                    pass
+                self._scroll_after = None
+            for child in list(self.winfo_children()):
+                child.destroy()
+            self.cells = {}
+            self.map_src = []
+            self.btn_lamps = []
+            self._vsb_on = False
+            self._hsb_on = False
+            self._suite_btn_key = None
+            self._apply_tk_scale()
+            self._fit_window()
+            self._build()
+            if port:
+                values = list(self.port_box["values"])
+                if port not in values:
+                    name = port.split()[0]
+                    match = next((v for v in values if str(v).split()[0] == name), None)
+                    port = match or port
+                self.port_var.set(port)
+            if connected:
+                shown = self._port_device() or dev
+                self.conn_btn.configure(text="Deconnecter")
+                self.status.configure(text=f"Connecte  {shown}", fg="#080")
+            if self.motors_soft:
+                self._set_soft_ui(True)
+            self._start_lamp(self.start_pressed)
+            self._refresh_map_labels()
+            self._refresh_suite_list()
+            self._suite_refresh()
+            if self._capture:
+                joint, _mode = self._capture
+                self.cap_lbl.configure(text=f"Capture {JOINT_NAMES[joint]} en cours")
+            if log_text.strip():
+                self.log.configure(state="normal")
+                self.log.insert("1.0", log_text if log_text.endswith("\n") else log_text + "\n")
+                self.log.configure(state="disabled")
+                self.log.see("end")
+        finally:
+            self._building = False
+
     def _build(self):
         top = tk.Frame(self, bg=BG)
-        top.pack(fill="x", padx=12, pady=10)
+        top.pack(fill="x", padx=12, pady=(10, 4 if self.ui_scale > 1.01 else 10))
+        tools = top
+        if self.ui_scale > 1.01:
+            tools = tk.Frame(self, bg=BG)
+            tools.pack(fill="x", padx=12, pady=(0, 8))
+        shell = tk.Frame(self, bg=BG)
+        shell.pack(fill="both", expand=True)
+        self._shell = shell
+        self._view = tk.Canvas(shell, bg=BG, highlightthickness=0, borderwidth=0)
+        self._vsb = ttk.Scrollbar(shell, orient="vertical", command=self._view.yview)
+        self._hsb = ttk.Scrollbar(shell, orient="horizontal", command=self._view.xview)
+        self._view.configure(yscrollcommand=self._vsb.set, xscrollcommand=self._hsb.set)
+        shell.grid_rowconfigure(0, weight=1)
+        shell.grid_columnconfigure(0, weight=1)
+        self._view.grid(row=0, column=0, sticky="nsew")
+        host = tk.Frame(self._view, bg=BG)
+        self._host = host
+        self._view_win = self._view.create_window((0, 0), window=host, anchor="nw")
+        host.bind("<Configure>", self._schedule_scroll)
+        self._view.bind("<Configure>", self._schedule_scroll)
 
         tk.Label(top, text="Port COM", bg=BG).pack(side="left")
         self.port_var = tk.StringVar()
@@ -720,7 +962,7 @@ class SensorGui(tk.Tk):
         self.status = tk.Label(top, text="Deconnecte", bg=BG, fg="#a00")
         self.status.pack(side="left", padx=12)
         self.btn_soft = tk.Button(
-            top,
+            tools,
             text="RENDRE MOU",
             command=self._toggle_soft,
             bg="#455a64",
@@ -728,21 +970,32 @@ class SensorGui(tk.Tk):
             activebackground="#455a64",
             activeforeground="white",
             font=("Segoe UI", 11, "bold"),
-            padx=14,
-            pady=4,
+            padx=z(14),
+            pady=z(4),
         )
         self.btn_soft.pack(side="right", padx=4)
         tk.Label(
-            top,
+            tools,
             text=app_version(),
             bg=BG,
             fg="#777",
             font=("Segoe UI", 9),
         ).pack(side="right", padx=8)
+        self.zoom_var = tk.StringVar(value=ZOOM_LABELS[ZOOM_LEVELS.index(self.ui_scale)])
+        self.zoom_box = ttk.Combobox(
+            tools,
+            textvariable=self.zoom_var,
+            values=ZOOM_LABELS,
+            width=5,
+            state="readonly",
+        )
+        self.zoom_box.pack(side="right", padx=(0, 4))
+        self.zoom_box.bind("<<ComboboxSelected>>", self._on_zoom_selected)
+        tk.Label(tools, text="Zoom", bg=BG).pack(side="right", padx=(12, 4))
 
         self._refresh_ports()
 
-        nb = ttk.Notebook(self)
+        nb = ttk.Notebook(host)
         nb.pack(fill="both", expand=True, padx=10, pady=(0, 10))
         tab_s = tk.Frame(nb, bg=BG)
         tab_p = tk.Frame(nb, bg=BG)
@@ -750,6 +1003,7 @@ class SensorGui(tk.Tk):
         nb.add(tab_p, text="  Manette  ")
         self._build_sensors(tab_s)
         self._build_pad(tab_p)
+        self._schedule_scroll()
 
     def _build_sensors(self, parent):
         hint = tk.Label(
@@ -847,7 +1101,7 @@ class SensorGui(tk.Tk):
             resolution=0.01,
             orient="horizontal",
             variable=self.dead_var,
-            length=120,
+            length=z(120),
             showvalue=True,
             bg=BG,
         ).pack(side="left")
@@ -859,7 +1113,7 @@ class SensorGui(tk.Tk):
             resolution=100,
             orient="horizontal",
             variable=self.maxspd_var,
-            length=180,
+            length=z(180),
             showvalue=True,
             bg=BG,
         ).pack(side="left")
@@ -900,8 +1154,8 @@ class SensorGui(tk.Tk):
                 activeforeground=fg,
                 disabledforeground="#888",
                 font=("Segoe UI", 9, "bold"),
-                padx=10,
-                pady=5,
+                padx=z(10),
+                pady=z(5),
                 relief="raised",
                 bd=2,
             )
@@ -935,7 +1189,7 @@ class SensorGui(tk.Tk):
             resolution=0.1,
             orient="horizontal",
             variable=self.play_rate,
-            length=240,
+            length=z(240),
             showvalue=False,
             bg=BG,
             highlightthickness=0,
@@ -1072,7 +1326,7 @@ class SensorGui(tk.Tk):
             bg=BG,
             fg="#666",
             font=("Segoe UI", 8),
-            wraplength=1200,
+            wraplength=z(1200),
             justify="left",
         ).pack(anchor="w", padx=8, pady=(0, 4))
 
@@ -1082,17 +1336,17 @@ class SensorGui(tk.Tk):
         viz = tk.Frame(mid, bg=BG)
         viz.pack(side="left", padx=(0, 6))
         self.pad_cv = tk.Canvas(
-            viz, width=PAD_VIZ_W, height=PAD_VIZ_H, bg=PAD_BG, highlightthickness=0
+            viz, width=z(PAD_VIZ_W), height=z(PAD_VIZ_H), bg=PAD_BG, highlightthickness=0
         )
         self.pad_cv.pack(side="left", padx=(4, 4), pady=2)
         gauges = tk.Frame(viz, bg="#111")
         gauges.pack(side="left", pady=2)
         self.xy_cv = tk.Canvas(
-            gauges, width=PAD_XY_W, height=PAD_XY_H, bg="#111", highlightthickness=0
+            gauges, width=z(PAD_XY_W), height=z(PAD_XY_H), bg="#111", highlightthickness=0
         )
         self.xy_cv.pack()
         self.axis_cv = tk.Canvas(
-            gauges, width=PAD_AXIS_W, height=PAD_AXIS_H, bg="#111", highlightthickness=0
+            gauges, width=z(PAD_AXIS_W), height=z(PAD_AXIS_H), bg="#111", highlightthickness=0
         )
         self.axis_cv.pack()
         btn_fr = tk.Frame(gauges, bg="#111")
@@ -1511,14 +1765,15 @@ class SensorGui(tk.Tk):
                 return
 
     def _draw_xy(self, cv, x, y, size, ax, ay, title, hat=False):
+        x, y, size = z(x), z(y), z(size)
         cv.create_rectangle(x, y, x + size, y + size, outline="#666", fill="#1a1a1a")
-        cv.create_text(x + size / 2, y - 7, text=title, fill="#bbb", font=("Segoe UI", 7))
+        cv.create_text(x + size / 2, y - z(7), text=title, fill="#bbb", font=("Segoe UI", 7))
         cx, cy = x + size / 2, y + size / 2
-        cv.create_line(x + 3, cy, x + size - 3, cy, fill="#333")
-        cv.create_line(cx, y + 3, cx, y + size - 3, fill="#333")
-        px = cx + max(-1.0, min(1.0, ax)) * (size / 2 - 6)
-        py = cy + max(-1.0, min(1.0, ay)) * (size / 2 - 6)
-        r = 4 if hat else 5
+        cv.create_line(x + z(3), cy, x + size - z(3), cy, fill="#333")
+        cv.create_line(cx, y + z(3), cx, y + size - z(3), fill="#333")
+        px = cx + max(-1.0, min(1.0, ax)) * (size / 2 - z(6))
+        py = cy + max(-1.0, min(1.0, ay)) * (size / 2 - z(6))
+        r = z(4 if hat else 5)
         cv.create_oval(px - r, py - r, px + r, py + r, fill=ON, outline="")
 
     def _draw_pad(self, pad):
@@ -1537,8 +1792,8 @@ class SensorGui(tk.Tk):
         def lit(i):
             return ON if i < len(pad["buttons"]) and pad["buttons"][i] else "#2a2a2a"
 
-        sx = PAD_VIZ_W / 470.0
-        sy = PAD_VIZ_H / 300.0
+        sx = z(PAD_VIZ_W) / 470.0
+        sy = z(PAD_VIZ_H) / 300.0
 
         def X(v):
             return v * sx
@@ -1612,16 +1867,16 @@ class SensorGui(tk.Tk):
 
         a = self.axis_cv
         a.delete("all")
-        w = 210
-        row_h = 11
+        w = z(210)
+        row_h = z(11)
         for i, val in enumerate(pad["axes"][:6]):
-            yy = 4 + i * row_h
-            a.create_text(22, yy + 5, text=f"A{i}", fill="#aaa", font=("Consolas", 7), anchor="e")
-            a.create_rectangle(28, yy, 28 + w, yy + 9, outline="#444", fill="#222")
-            mid = 28 + w / 2
-            a.create_line(mid, yy, mid, yy + 9, fill="#555")
-            px = mid + max(-1.0, min(1.0, val)) * (w / 2 - 2)
-            a.create_rectangle(min(mid, px), yy + 1, max(mid, px), yy + 8, fill="#5ad", outline="")
+            yy = z(4) + i * row_h
+            a.create_text(z(22), yy + z(5), text=f"A{i}", fill="#aaa", font=("Consolas", 7), anchor="e")
+            a.create_rectangle(z(28), yy, z(28) + w, yy + z(9), outline="#444", fill="#222")
+            mid = z(28) + w / 2
+            a.create_line(mid, yy, mid, yy + z(9), fill="#555")
+            px = mid + max(-1.0, min(1.0, val)) * (w / 2 - z(2))
+            a.create_rectangle(min(mid, px), yy + z(1), max(mid, px), yy + z(8), fill="#5ad", outline="")
 
         shown = max(len(pad["buttons"]), 8)
         for i, lab in enumerate(self.btn_lamps):
