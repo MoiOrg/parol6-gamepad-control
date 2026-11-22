@@ -2,30 +2,32 @@
 
 Interface Windows pour piloter le bras PAROL6 : capteurs, manette, suites de mouvements et programmes.
 
-Le programme qui tourne sur le PC est `sensor_gui.py`. Le firmware est déjà dans la carte du robot. Changer de PC ne demande pas de reflasher : le nouveau PC parle au bras en USB. Le numéro de port COM change d’un ordinateur à l’autre. Les suites et le mapping manette voyagent avec les fichiers du dépôt.
+Le firmware est déjà dans la carte du robot. Ce PC parle au bras en USB. Le numéro de port COM change d’un ordinateur à l’autre.
 
-Ce logiciel utilise l’API Windows (port série et manette). Il se lance sur un PC Windows.
+Ce logiciel utilise l’API Windows. Il se lance sur un PC Windows.
 
 Garde une main sur l’arrêt d’urgence. Le bras peut bouger dès qu’une suite ou la manette envoie une vitesse.
 
-## Fichiers du dépôt
+## Utilisation
 
-| Fichier | Rôle |
-| --- | --- |
-| `sensor_gui.py` | Interface. C’est elle qu’on lance. |
-| `motion_library.json` | Suites et programmes enregistrés. |
-| `pad_map.json` | Mapping de la manette. |
-| `last_motion.json` | Dernier enregistrement. |
-| `src/wiring_test.cpp` | Firmware de la carte. Utile seulement pour reflasher. |
-| `platformio.ini` | Config PlatformIO, pour un reflash. |
+Une fois l’installation faite, le logiciel s’ouvre par l’icône **PAROL6** sur le Bureau. Il n’y a pas de terminal.
 
-`platformio.ini` ignore déjà le dossier `.pio`. Ne versionne pas `.pio` ni `__pycache__` : ce sont des fichiers de compilation, régénérés sur place.
+À chaque clic, le raccourci récupère la dernière version sur GitHub, puis ouvre la fenêtre. Le numéro de version est écrit dans la barre du haut, à gauche du bouton **RENDRE MOU**, et dans le titre de la fenêtre. C’est ce numéro qu’on donne pour le support.
 
-## Installer sur un autre PC
+Les suites, les programmes et le mapping de la manette sont enregistrés dans `%APPDATA%\PAROL6` (`motion_library.json`, `pad_map.json`, `last_motion.json`). Une mise à jour du logiciel ne les remplace pas.
+
+1. Branche le câble USB du robot sur ce PC, et la manette aussi. La manette est lue par Windows, pas par la carte.
+2. Dans le logiciel, choisis le port **STM32 Virtual COM Port** (`COM3`, `COM5`, etc.). **Rafraichir** relit la liste si le câble vient d’être branché. Le nom exact est dans le Gestionnaire de périphériques, sous **Ports (COM et LPT)**.
+3. Clique **Connecter**.
+4. Ferme le moniteur série PlatformIO avant de connecter. Un port COM ne s’ouvre qu’une fois.
+
+## Première installation
+
+À faire une seule fois sur le PC.
 
 1. Installe [Git pour Windows](https://git-scm.com/download/win).
-2. Installe [Python 3.11](https://www.python.org/downloads/release/python-3119/). Sur le premier écran, coche **Add python.exe to PATH**. Tkinter est inclus dans cet installeur.
-3. Ouvre PowerShell et clone le dépôt :
+2. Installe [Python 3.11](https://www.python.org/downloads/release/python-3119/). Sur le premier écran, coche **Add python.exe to PATH**.
+3. Ouvre PowerShell :
 
 ```powershell
 cd $env:USERPROFILE\Documents
@@ -33,28 +35,30 @@ git clone https://github.com/MoiOrg/parol6-gamepad-control
 cd parol6-gamepad-control
 ```
 
-4. Branche le câble USB du robot sur ce PC, et la manette aussi. La manette est lue par Windows, pas par la carte.
+4. Double-clique `PAROL6.vbs` dans ce dossier. La fenêtre s’ouvre, et l’icône **PAROL6** apparaît sur le Bureau. Ensuite, seul ce raccourci sert.
 
-## Lancer
-
-Dans le dossier du dépôt. `py -3.11` force Python 3.11, même si une version plus récente est aussi installée. `python` seul prend le premier trouvé dans le PATH.
-
-```powershell
-py -3.11 sensor_gui.py
-```
-
-La fenêtre s’appelle **PAROL6 — capteurs + manette**.
-
-1. Ouvre le Gestionnaire de périphériques et regarde **Ports (COM et LPT)**. Note le port **STM32 Virtual COM Port** (`COM3`, `COM5`, etc.).
-2. Dans le logiciel, choisis ce port. **Rafraichir** relit la liste si le câble vient d’être branché.
-3. Clique **Connecter**. Le statut passe de « Deconnecte » à connecté.
-4. Ferme le moniteur série PlatformIO avant de connecter. Un port COM ne s’ouvre qu’une fois : s’il est déjà pris, la connexion échoue.
-
-`pyserial` est optionnel. Sans lui, le logiciel ouvre le port via Windows. Pour une liste de ports plus propre :
+`pyserial` est optionnel. Sans lui, le logiciel ouvre le port via Windows. Pour une liste de ports plus claire :
 
 ```powershell
 py -3.11 -m pip install pyserial
 ```
+
+Si l’icône ne s’ouvre pas, le dernier essai de mise à jour est dans `%APPDATA%\PAROL6\update.log`.
+
+## Fichiers du dépôt
+
+| Fichier | Rôle |
+| --- | --- |
+| `PAROL6.vbs` | Raccourci : mise à jour, puis ouverture sans terminal. |
+| `sensor_gui.py` | Interface. |
+| `VERSION` | Numéro affiché dans la fenêtre. À changer quand tu publies une mise à jour. |
+| `motion_library.json` | Suites de départ, copiées une fois dans `%APPDATA%\PAROL6`. |
+| `pad_map.json` | Mapping de départ de la manette. |
+| `last_motion.json` | Dernier enregistrement de départ. |
+| `src/wiring_test.cpp` | Firmware de la carte. Utile seulement pour reflasher. |
+| `platformio.ini` | Config PlatformIO, pour un reflash. |
+
+Le `.gitignore` laisse de côté `.pio` et `__pycache__`.
 
 ## Reflasher la carte
 

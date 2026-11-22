@@ -16,6 +16,7 @@ import ctypes
 import json
 import os
 import queue
+import shutil
 import threading
 import time
 import tkinter as tk
@@ -288,9 +289,36 @@ BAUD = 115200
 HIGHLIGHT_MS = 3000
 POLL_MS = 30
 PAD_MS = 40
-MAP_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pad_map.json")
-CLIP_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "last_motion.json")
-LIBRARY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "motion_library.json")
+
+
+def _user_file(name):
+    """Suites et réglages dans %APPDATA%\\PAROL6, pour qu'une mise à jour du code ne les écrase pas."""
+    src = os.path.join(os.path.dirname(os.path.abspath(__file__)), name)
+    try:
+        base = os.environ.get("APPDATA") or os.path.expanduser("~")
+        folder = os.path.join(base, "PAROL6")
+        os.makedirs(folder, exist_ok=True)
+        dest = os.path.join(folder, name)
+        if not os.path.isfile(dest) and os.path.isfile(src):
+            shutil.copy2(src, dest)
+        return dest
+    except OSError:
+        return src
+
+
+def app_version():
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "VERSION")
+    try:
+        with open(path, encoding="utf-8") as f:
+            text = f.read().strip()
+    except OSError:
+        text = ""
+    return text or "dev"
+
+
+MAP_FILE = _user_file("pad_map.json")
+CLIP_FILE = _user_file("last_motion.json")
+LIBRARY_FILE = _user_file("motion_library.json")
 PLAY_SPEED_MAX = 8000
 PLAY_RATE_MAX = 8.0
 START_RETURN_ID = "__start_return__"
@@ -595,7 +623,7 @@ class ValueCell:
 class SensorGui(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("PAROL6 — capteurs + manette")
+        self.title(f"PAROL6 — capteurs + manette  ·  {app_version()}")
         self.configure(bg=BG)
         self.geometry("1280x900")
         self.minsize(1100, 720)
@@ -704,6 +732,13 @@ class SensorGui(tk.Tk):
             pady=4,
         )
         self.btn_soft.pack(side="right", padx=4)
+        tk.Label(
+            top,
+            text=app_version(),
+            bg=BG,
+            fg="#777",
+            font=("Segoe UI", 9),
+        ).pack(side="right", padx=8)
 
         self._refresh_ports()
 
