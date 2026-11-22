@@ -372,13 +372,28 @@ JOINT_NAMES = ["J1 base", "J2 epaule", "J3 coude", "J4 roll", "J5 pitch", "J6 ya
 BG = "#f4f4f4"
 CARD = "#ffffff"
 UI_SCALE = 1.0
-ZOOM_LEVELS = (1.0, 1.5, 2.0)
-ZOOM_LABELS = ("100%", "150%", "200%")
+ZOOM_MIN = 1.0
+ZOOM_MAX = 2.0
+ZOOM_STEP = 0.1
 
 
 def z(n):
     """Pixels d'interface, multipliés par le zoom choisi."""
     return max(1, int(round(float(n) * UI_SCALE)))
+
+
+def clamp_ui_scale(value):
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return ZOOM_MIN
+    steps = int(round(value / ZOOM_STEP))
+    steps = max(int(round(ZOOM_MIN / ZOOM_STEP)), min(int(round(ZOOM_MAX / ZOOM_STEP)), steps))
+    return round(steps * ZOOM_STEP, 1)
+
+
+def zoom_label(scale):
+    return f"{int(round(scale * 100))}%"
 
 
 def load_ui_scale():
@@ -392,10 +407,7 @@ def load_ui_scale():
         value = float(raw.get("scale", 1))
     except (OSError, ValueError, TypeError, json.JSONDecodeError):
         return 1.0
-    for scale in ZOOM_LEVELS:
-        if abs(value - scale) < 0.05:
-            return scale
-    return 1.0
+    return clamp_ui_scale(value)
 
 
 def save_ui_scale(scale):
@@ -857,15 +869,11 @@ class SensorGui(tk.Tk):
         else:
             view.yview_scroll(step, "units")
 
-    def _on_zoom_selected(self, _event=None):
+    def _step_zoom(self, delta):
         if self._building:
             return
-        label = self.zoom_var.get()
-        try:
-            scale = ZOOM_LEVELS[ZOOM_LABELS.index(label)]
-        except ValueError:
-            return
-        if abs(scale - self.ui_scale) < 0.01:
+        scale = clamp_ui_scale(self.ui_scale + delta)
+        if abs(scale - self.ui_scale) < 0.001:
             return
         self.ui_scale = scale
         save_ui_scale(scale)
@@ -990,16 +998,30 @@ class SensorGui(tk.Tk):
             fg="#777",
             font=("Segoe UI", 9),
         ).pack(side="right", padx=8)
-        self.zoom_var = tk.StringVar(value=ZOOM_LABELS[ZOOM_LEVELS.index(self.ui_scale)])
-        self.zoom_box = ttk.Combobox(
+        self.zoom_plus = ttk.Button(
             tools,
-            textvariable=self.zoom_var,
-            values=ZOOM_LABELS,
-            width=5,
-            state="readonly",
+            text="+",
+            width=3,
+            command=lambda: self._step_zoom(ZOOM_STEP),
+            state="disabled" if self.ui_scale >= ZOOM_MAX - 0.001 else "normal",
         )
-        self.zoom_box.pack(side="right", padx=(0, 4))
-        self.zoom_box.bind("<<ComboboxSelected>>", self._on_zoom_selected)
+        self.zoom_plus.pack(side="right")
+        self.zoom_lbl = tk.Label(
+            tools,
+            text=zoom_label(self.ui_scale),
+            bg=BG,
+            font=("Segoe UI", 9, "bold"),
+            width=5,
+        )
+        self.zoom_lbl.pack(side="right", padx=4)
+        self.zoom_minus = ttk.Button(
+            tools,
+            text="−",
+            width=3,
+            command=lambda: self._step_zoom(-ZOOM_STEP),
+            state="disabled" if self.ui_scale <= ZOOM_MIN + 0.001 else "normal",
+        )
+        self.zoom_minus.pack(side="right")
         tk.Label(tools, text="Zoom", bg=BG).pack(side="right", padx=(12, 4))
 
         self._refresh_ports()
