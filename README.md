@@ -51,12 +51,14 @@ Si l’icône ne s’ouvre pas, le dernier essai de mise à jour est dans `%APPD
 | --- | --- |
 | `PAROL6.vbs` | Raccourci : mise à jour, puis ouverture sans terminal. |
 | `sensor_gui.py` | Interface. |
-| `VERSION` | Numéro affiché dans la fenêtre. À changer quand tu publies une mise à jour. |
+| `VERSION` | Numéro affiché dans la fenêtre. Il augmente d’un cran à chaque modification publiée. |
 | `motion_library.json` | Suites de départ, copiées une fois dans `%APPDATA%\PAROL6`. |
 | `pad_map.json` | Mapping de départ de la manette. |
 | `last_motion.json` | Dernier enregistrement de départ. |
 | `src/wiring_test.cpp` | Firmware de la carte. Utile seulement pour reflasher. |
 | `platformio.ini` | Config PlatformIO, pour un reflash. |
+
+Ce numéro augmente au moment du commit. Une modification du programme ne part pas sur GitHub en gardant l’ancien numéro.
 
 Le `.gitignore` laisse de côté `.pio` et `__pycache__`.
 

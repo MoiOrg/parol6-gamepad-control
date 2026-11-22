@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "command": "py -3.11 -u .cursor/hooks/version_guard.py session-start",
+        "timeout": 20
+      }
+    ],
+    "beforeShellExecution": [
+      {
+        "command": "py -3.11 -u .cursor/hooks/version_guard.py cursor-before-shell",
+        "matcher": "git(\\.exe)?[\\s\\S]*\\b(commit|push)\\b",
+        "timeout": 30,
+        "failClosed": true
+      }
+    ],
+    "stop": [
+      {
+        "command": "py -3.11 -u .cursor/hooks/version_guard.py cursor-stop",
+        "timeout": 20,
+        "loop_limit": 1
+      }
+    ]
+  }
+}

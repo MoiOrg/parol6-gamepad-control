@@ -1,0 +1,19 @@
+---
+description: Incrémenter le numéro VERSION affiché dans le logiciel PAROL6 à chaque modification publiée
+alwaysApply: true
+---
+
+# Version affichée du logiciel PAROL6
+
+Le numéro en haut de la fenêtre est le fichier `PAROL6-Desktop-robot-arm/PAROL6 wiring test/VERSION` : une seule ligne `X.Y.Z`.
+
+Quand tu modifies ce logiciel (`sensor_gui.py`, `PAROL6.vbs`, `src/`, `platformio.ini`, les JSON ou `README.md`) :
+
+1. Lis `VERSION`.
+2. S’il n’est pas déjà strictement supérieur à `HEAD`, augmente le patch de 1 (`1.0.4` devient `1.0.5`).
+3. Inclus `VERSION` dans le même commit que la modification.
+4. S’il est déjà supérieur à `HEAD`, ne l’augmente pas une deuxième fois.
+
+Un commit ou un push qui change le logiciel et garde l’ancien numéro est refusé. N’utilise jamais `--no-verify`. Ne redescends jamais `VERSION`.
+
+Les dossiers `.cursor/`, `.githooks/` et `tools/` ne comptent pas comme une modification du logiciel.

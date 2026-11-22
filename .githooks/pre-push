@@ -1,0 +1,21 @@
+#!/bin/sh
+HOOK_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+case "$HOOK_DIR" in
+  */.git/hooks)
+    ROOT=$(CDPATH= cd -- "$HOOK_DIR/../.." && pwd)
+    ;;
+  *)
+    ROOT=$(CDPATH= cd -- "$HOOK_DIR/.." && pwd)
+    ;;
+esac
+cd "$ROOT" || exit 1
+if command -v py >/dev/null 2>&1; then
+  py -3.11 tools/version_guard.py pre-push
+  exit $?
+fi
+if command -v python >/dev/null 2>&1; then
+  python tools/version_guard.py pre-push
+  exit $?
+fi
+echo "Python introuvable, publication bloquee pour garder le numero a jour." >&2
+exit 1
