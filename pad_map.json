@@ -1,0 +1,58 @@
+{
+  "joints": [
+    {
+      "type": "axis",
+      "index": 0,
+      "invert": false,
+      "pos": null,
+      "neg": null,
+      "hat": 0,
+      "hat_axis": "x"
+    },
+    {
+      "type": "axis",
+      "index": 1,
+      "invert": false,
+      "pos": null,
+      "neg": null,
+      "hat": 0,
+      "hat_axis": "y"
+    },
+    {
+      "type": "axis",
+      "index": 2,
+      "invert": false,
+      "pos": null,
+      "neg": null,
+      "hat": 0,
+      "hat_axis": "x"
+    },
+    {
+      "type": "axis",
+      "index": 3,
+      "invert": true,
+      "pos": null,
+      "neg": null,
+      "hat": 0,
+      "hat_axis": "y"
+    },
+    {
+      "type": "buttons",
+      "index": 0,
+      "invert": false,
+      "pos": 4,
+      "neg": 6,
+      "hat": 0,
+      "hat_axis": "x"
+    },
+    {
+      "type": "buttons",
+      "index": 0,
+      "invert": false,
+      "pos": 5,
+      "neg": 7,
+      "hat": 0,
+      "hat_axis": "x"
+    }
+  ]
+}
