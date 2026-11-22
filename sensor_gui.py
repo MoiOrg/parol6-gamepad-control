@@ -697,6 +697,8 @@ class SensorGui(tk.Tk):
             self.inv_vars[i].set(1 if m.get("invert") else 0)
         self.pad_enable = tk.IntVar(value=0)
         self.motors_soft = False
+        self._soft_warn_until = 0.0
+        self._soft_pad_warned = False
         self.dead_var = tk.DoubleVar(value=0.18)
         self.maxspd_var = tk.IntVar(value=1600)
         self._capture = None
@@ -961,6 +963,13 @@ class SensorGui(tk.Tk):
         self.conn_btn.pack(side="left", padx=8)
         self.status = tk.Label(top, text="Deconnecte", bg=BG, fg="#a00")
         self.status.pack(side="left", padx=12)
+        self.soft_warn = tk.Label(
+            tools,
+            text="  Mou : pas d'entree. Manette, START et suites bloques — clique Tenir.  ",
+            bg="#fff3e0",
+            fg="#e65100",
+            font=("Segoe UI", 9, "bold"),
+        )
         self.btn_soft = tk.Button(
             tools,
             text="RENDRE MOU",
@@ -1446,6 +1455,10 @@ class SensorGui(tk.Tk):
         self._cmd(f"k{i + 1}={1 if self.k_vars[i].get() else 0}")
 
     def _on_pad_enable(self):
+        if self.pad_enable.get() and self.motors_soft:
+            self.pad_enable.set(0)
+            self._refuse_soft("Manette")
+            return
         if not self.pad_enable.get():
             self._send_speeds([0] * 6, force=True)
             self.drive_lbl.configure(text="idle")
@@ -1522,9 +1535,45 @@ class SensorGui(tk.Tk):
             return True
         return s[0] in ("a", "v")
 
+    def _show_soft_warn(self, on: bool):
+        if not hasattr(self, "soft_warn"):
+            return
+        if on:
+            if not self.soft_warn.winfo_manager():
+                self.soft_warn.pack(side="left", padx=8)
+        elif self.soft_warn.winfo_manager():
+            self.soft_warn.pack_forget()
+
+    def _refuse_soft(self, where: str, popup: bool = True):
+        self._log(f"{where} ignore : bras mou. Clique Tenir d'abord.")
+        if not popup:
+            return
+        now = time.time()
+        if now < self._soft_warn_until:
+            return
+        self._soft_warn_until = now + 1.5
+        messagebox.showinfo(
+            "Bras mou",
+            "Les entrees de mouvement sont bloquees tant que le bras est mou.\n\n"
+            "Manette, START, suites et programmes ne partent pas.\n"
+            "Clique Tenir avant de lancer un mouvement,\n"
+            "sinon le bras se decalibre.",
+        )
+
+    def _pad_wants_motion(self, pad) -> bool:
+        try:
+            dead = float(self.dead_var.get())
+        except Exception:
+            dead = 0.18
+        for i in range(6):
+            if abs(joint_axis(self.maps[i], pad)) >= dead:
+                return True
+        return False
+
     def _set_soft_ui(self, soft: bool):
         self.motors_soft = soft
         if soft:
+            self._soft_pad_warned = False
             self.btn_soft.configure(
                 text="Tenir",
                 bg="#e65100",
@@ -1539,6 +1588,8 @@ class SensorGui(tk.Tk):
             )
             if not self.play_on:
                 self.drive_lbl.configure(text="idle", fg="#080")
+        self._show_soft_warn(soft)
+        self._clip_status()
 
     def _toggle_soft(self):
         if not self.ser or not self.ser.is_open:
@@ -1563,7 +1614,7 @@ class SensorGui(tk.Tk):
         if not self.ser or not self.ser.is_open:
             return
         if self.motors_soft and self._blocked_while_soft(c):
-            self._log("Ignore : bras mou. Clique Tenir d'abord.")
+            self._refuse_soft("Commande")
             return
         try:
             payload = c if c.endswith("\n") else c + "\n"
@@ -1646,7 +1697,7 @@ class SensorGui(tk.Tk):
                 self._pad_last = [0] * 6
                 self._set_soft_ui(soft)
                 self._log(
-                    "Bras mou. Tiens-le."
+                    "Bras mou. Entrees bloquees (manette, START, suite). Tiens-le, puis clique Tenir."
                     if soft
                     else "Couple remis. Position fausse si le bras a ete bouge a la main."
                 )
@@ -1889,6 +1940,9 @@ class SensorGui(tk.Tk):
             return
         if self.motors_soft:
             self.drive_lbl.configure(text="mou", fg="#e65100")
+            if self.pad_enable.get() and not self._soft_pad_warned and self._pad_wants_motion(pad):
+                self._soft_pad_warned = True
+                self._refuse_soft("Manette")
             return
         if not self.pad_enable.get():
             self.h_prev = self.h_state[:]
@@ -2246,6 +2300,15 @@ class SensorGui(tk.Tk):
             detail = f"{len(self.library)} suite(s) en memoire" if self.library else "aucune suite"
             btns = (True, False, False, False, False, False)
 
+        if self.motors_soft and not self.rec_on and not self.play_on:
+            msg = (
+                "Bras mou : manette, START et suites sont bloques. "
+                "Clique Tenir avant de lancer un mouvement."
+            )
+            bg, fg = "#fff3e0", "#e65100"
+            title = "Mode mou — entrees bloquees"
+            detail = "Une suite lancee maintenant decalibrerait le bras."
+
         if btn_key != self._suite_btn_key:
             self._suite_btn_key = btn_key
             self._suite_set_btns(*btns)
@@ -2462,6 +2525,9 @@ class SensorGui(tk.Tk):
         self._clip_status()
 
     def _rec_start(self):
+        if self.motors_soft:
+            self._refuse_soft("Enregistrer")
+            return
         if not self.ser or not self.ser.is_open:
             messagebox.showerror("Enregistrer", "Connecte le COM d'abord.")
             return
@@ -2688,6 +2754,9 @@ class SensorGui(tk.Tk):
         if self.estop_pressed:
             self._log("START ignore : E-stop")
             return
+        if self.motors_soft:
+            self._refuse_soft("START")
+            return
         if not self.ser or not self.ser.is_open:
             self._log("START ignore : pas de COM")
             return
@@ -2748,10 +2817,7 @@ class SensorGui(tk.Tk):
                 messagebox.showerror("Clip", "E-stop presse. Relache-le avant de relancer.")
             return False
         if self.motors_soft:
-            if from_button:
-                self._log("START ignore : bras mou")
-            else:
-                messagebox.showinfo("Clip", "Bras mou. Clique Tenir avant de rejouer.")
+            self._refuse_soft("Suite", popup=not from_button)
             return False
         if not clip_has_motion(self.clip):
             if from_button:
@@ -2825,7 +2891,7 @@ class SensorGui(tk.Tk):
             )
             return
         if self.motors_soft:
-            messagebox.showinfo("Retour depart", "Bras mou. Clique Tenir avant de bouger.")
+            self._refuse_soft("Retour depart")
             return
         if not self.ser or not self.ser.is_open:
             messagebox.showerror("Retour depart", "Connecte le COM d'abord.")
@@ -3297,6 +3363,9 @@ class SensorGui(tk.Tk):
                 self._log("START ignore : E-stop")
             else:
                 messagebox.showerror("Programme", "E-stop presse. Relache-le avant de relancer.")
+            return
+        if self.motors_soft:
+            self._refuse_soft("Programme", popup=not from_button)
             return
         if not self.ser or not self.ser.is_open:
             if from_button:
